@@ -73,3 +73,52 @@ def normalize_engagement_fields(progress: dict[str, Any], *, level_count: int) -
         progress["campaign_started_at"] = None
     progress["chapter_a_speedrun_done"] = bool(progress.get("chapter_a_speedrun_done"))
     progress["won_after_many_tries"] = bool(progress.get("won_after_many_tries"))
+
+    # Онбординг и «уют»: строки/списки
+    od = progress.get("onboarding_done")
+    if od is None:
+        # Старые сохранения без ключа: не заставляем выбирать имя, если уже есть прогресс
+        has_any = bool(progress.get("completed_levels")) or int(progress.get("kitten_points", 0)) > 0
+        progress["onboarding_done"] = True if has_any else False
+        if has_any and not str(progress.get("pet_name", "")).strip():
+            progress["pet_name"] = "Котик"
+    else:
+        progress["onboarding_done"] = bool(od)
+
+    pn = str(progress.get("pet_name", "")).strip()
+    progress["pet_name"] = pn[:32]
+
+    bday = str(progress.get("birthday_mmdd", "")).strip()
+    if bday and len(bday) >= 5:
+        progress["birthday_mmdd"] = bday[:5]
+    else:
+        progress["birthday_mmdd"] = ""
+
+    th = str(progress.get("lesson_card_theme", "default")).strip().lower()
+    progress["lesson_card_theme"] = th if th in ("default", "lavender", "peach", "mint") else "default"
+
+    raw_journal = progress.get("journal_entries")
+    if not isinstance(raw_journal, list):
+        progress["journal_entries"] = []
+    else:
+        clean: list[dict[str, Any]] = []
+        for item in raw_journal[:50]:
+            if not isinstance(item, dict):
+                continue
+            ds = str(item.get("date", ""))[:16]
+            ts = str(item.get("text", ""))[:2000]
+            if ts.strip():
+                clean.append({"date": ds, "text": ts})
+        progress["journal_entries"] = clean
+
+    sa = str(progress.get("seasonal_accent", "auto")).strip().lower()
+    progress["seasonal_accent"] = sa if sa in ("auto", "winter", "spring", "summer", "autumn") else "auto"
+
+    progress["cozy_day_only"] = bool(progress.get("cozy_day_only"))
+
+    for fk in ("fish_reward_ymd", "sleep_nag_ymd", "birthday_banner_ymd"):
+        v = progress.get(fk)
+        if v is not None and v != "" and not isinstance(v, str):
+            progress[fk] = None
+        elif isinstance(v, str) and len(v) > 12:
+            progress[fk] = v[:12]

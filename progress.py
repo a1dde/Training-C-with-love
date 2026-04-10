@@ -59,6 +59,25 @@ DEFAULT_PROGRESS: dict[str, Any] = {
     "chapter_a_speedrun_done": False,
     # Уровни, где отмечено «могу объяснить своими словами»
     "self_explain_levels": [],
+    # Онбординг: имя питомца при первом запуске
+    "pet_name": "",
+    "onboarding_done": False,
+    # День рождения MM-DD (опционально) — поздравление раз в год
+    "birthday_mmdd": "",
+    # Тема карточки урока: default | lavender | peach | mint
+    "lesson_card_theme": "default",
+    # Дневник: список {"date": "YYYY-MM-DD", "text": "..."}
+    "journal_entries": [],
+    # Сезонная рамка: auto | winter | spring | summer | autumn
+    "seasonal_accent": "auto",
+    # «Сегодня только уют» — мягкий акцент в тексте урока
+    "cozy_day_only": False,
+    # Рыбка за ~15 мин в сессии (раз в календарный день)
+    "fish_reward_ymd": None,
+    # Напоминание про сон после 22:00 (раз в день)
+    "sleep_nag_ymd": None,
+    # Уже показывали баннер дня рождения в этот день
+    "birthday_banner_ymd": None,
 }
 
 

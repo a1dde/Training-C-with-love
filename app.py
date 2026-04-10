@@ -4,7 +4,8 @@ import os
 import random
 import sys
 import threading
-from datetime import date
+import time
+from datetime import date, datetime
 from typing import Callable
 
 import customtkinter as ctk
@@ -12,7 +13,8 @@ import tkinter as tk
 
 from achievements import achievement_catalog_rows, update_achievements
 from csharp_reference import FULL_REFERENCE_TEXT
-from engagement import LEVEL_STORY_BEATS, touch_daily_streak
+from cozy_content import CHAPTER_BEAT_STORIES, CS_MICRO_TIPS, LESSON_CARD_THEMES, MUR_STATUS_LINES, resolve_season_border
+from engagement import LEVEL_STORY_BEATS, normalize_engagement_fields, touch_daily_streak
 from engagement_content import (
     FIVE_MIN_QUESTS,
     JUNIOR_DAY_STEPS,
@@ -82,6 +84,8 @@ class MeowAcademyApp(ctk.CTk):
         self._mentor_shown_session = False
         self._burnout_nag_shown = False
         self._love_after_id: object | None = None
+        self._cozy_timer_id: object | None = None
+        self._session_wall_start = 0.0
         self._validation_busy = False
         self._boss_ctk_image = None
 
@@ -90,21 +94,184 @@ class MeowAcademyApp(ctk.CTk):
 
         self._build_layout()
         apply_editor_theme(self.code_editor, self.progress.get("theme", "dark"))
-        self._render_level(self.current_level)
-        self._refresh_sidebar()
-        self._refresh_progress_labels()
-        self._refresh_code_highlight_theme()
-        self._schedule_love_reminder()
-        self.after(800, self._maybe_show_mentor_letter)
+        if self.progress.get("onboarding_done"):
+            self._finish_startup()
+        else:
+            self.after(120, self._show_onboarding_modal)
 
     def _on_close(self) -> None:
         self._cancel_love_reminder()
+        self._cancel_cozy_timer()
         try:
             self._save_current_level_draft()
             save_progress(self.progress)
         except Exception:
             pass
         self.destroy()
+
+    def _finish_startup(self) -> None:
+        """После онбординга или при старте с уже сохранённым именем."""
+        self._session_wall_start = time.time()
+        self._render_level(self.current_level)
+        self._refresh_sidebar()
+        self._refresh_progress_labels()
+        self._refresh_code_highlight_theme()
+        self._schedule_love_reminder()
+        self.after(800, self._maybe_show_mentor_letter)
+        self.after(1600, self._maybe_birthday_banner)
+        self._schedule_cozy_timers()
+
+    def _show_onboarding_modal(self) -> None:
+        win = ctk.CTkToplevel(self)
+        self._popup(win)
+        win.title("Знакомство 🐾")
+        win.geometry("440x240")
+        win.attributes("-topmost", True)
+        win.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            win,
+            text="Как зовут твоего котика-помощника?",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            anchor="w",
+        ).grid(row=0, column=0, padx=20, pady=(20, 6), sticky="w")
+        ctk.CTkLabel(
+            win,
+            text="Имя можно сменить позже в «Забота» → «Уют».",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray40", "gray60"),
+            anchor="w",
+        ).grid(row=1, column=0, padx=20, pady=(0, 8), sticky="w")
+        ent = ctk.CTkEntry(win, width=320, placeholder_text="Например: Мурка")
+        ent.grid(row=2, column=0, padx=20, pady=4, sticky="ew")
+        err = ctk.CTkLabel(win, text="", text_color=("#C62828", "#FF8A80"), anchor="w", font=ctk.CTkFont(size=12))
+        err.grid(row=3, column=0, padx=20, pady=(4, 8), sticky="w")
+
+        def _submit() -> None:
+            name = ent.get().strip()
+            if not name:
+                err.configure(text="Введи имя — хотя бы одно слово 💕")
+                return
+            self.progress["pet_name"] = name[:32]
+            self.progress["onboarding_done"] = True
+            save_progress(self.progress)
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+            self._finish_startup()
+
+        def _on_try_close() -> None:
+            _submit()
+
+        win.protocol("WM_DELETE_WINDOW", _on_try_close)
+        ctk.CTkButton(win, text="Дальше 💕", command=_submit, fg_color=PINK_PRIMARY, hover_color=PINK_HOVER).grid(
+            row=4, column=0, pady=(8, 16)
+        )
+        win.after(80, lambda: (ent.focus_set(), win.grab_set()))
+
+    def _pet_display_name(self) -> str:
+        n = str(self.progress.get("pet_name", "")).strip()
+        return n if n else "Котик"
+
+    def _apply_cozy_visuals(self) -> None:
+        th = str(self.progress.get("lesson_card_theme", "default"))
+        fg_l, fg_d, b_l, b_d = LESSON_CARD_THEMES.get(th, LESSON_CARD_THEMES["default"])
+        now = datetime.now()
+        sb_l, sb_d = resolve_season_border(str(self.progress.get("seasonal_accent", "auto")), now.month, now.day)
+        try:
+            self.quest_card.configure(fg_color=(fg_l, fg_d), border_color=(b_l, b_d))
+            self.pet_strip.configure(border_color=(sb_l, sb_d))
+            self.main_tabs.configure(border_color=(sb_l, sb_d))
+        except Exception:
+            pass
+
+    def _cancel_cozy_timer(self) -> None:
+        if self._cozy_timer_id is not None:
+            try:
+                self.after_cancel(self._cozy_timer_id)
+            except Exception:
+                pass
+            self._cozy_timer_id = None
+
+    def _schedule_cozy_timers(self) -> None:
+        self._cancel_cozy_timer()
+        self._cozy_timer_id = self.after(60_000, self._cozy_tick)
+
+    def _cozy_tick(self) -> None:
+        self._cozy_timer_id = None
+        self._maybe_award_session_fish()
+        self._maybe_sleep_nag()
+        self._schedule_cozy_timers()
+
+    def _maybe_award_session_fish(self) -> None:
+        if self._session_wall_start <= 0:
+            return
+        if time.time() - self._session_wall_start < 900:
+            return
+        today = date.today().isoformat()
+        if str(self.progress.get("fish_reward_ymd") or "") == today:
+            return
+        self.progress["fish_reward_ymd"] = today
+        self.progress["kitten_points"] = int(self.progress.get("kitten_points", 0)) + 2
+        save_progress(self.progress)
+        self._refresh_progress_labels()
+        try:
+            self.status_label.configure(
+                text=f"🐟 {self._pet_display_name()} получил(а) рыбку за 15 минут в приложении — +2 лапки!"
+            )
+        except Exception:
+            pass
+        self.pet_widget.set_mood("happy")
+        self.after(2400, lambda: self.pet_widget.set_mood(None))
+
+    def _maybe_sleep_nag(self) -> None:
+        if datetime.now().hour < 22:
+            return
+        today = date.today().isoformat()
+        if str(self.progress.get("sleep_nag_ymd") or "") == today:
+            return
+        self.progress["sleep_nag_ymd"] = today
+        save_progress(self.progress)
+        if CTkMessagebox:
+            self._msg(
+                title="Пора отдохнуть 🌙",
+                message=f"{self._pet_display_name()} шепчет: выключи экран, дай глазам и мозгу сон — завтра C# подождёт.",
+                option_1="Спокойной ночи",
+            )
+
+    def _maybe_birthday_banner(self) -> None:
+        raw = str(self.progress.get("birthday_mmdd", "")).strip()
+        if len(raw) < 5 or raw[2] != "-":
+            return
+        try:
+            mm = int(raw[:2])
+            dd = int(raw[3:5])
+        except ValueError:
+            return
+        now = datetime.now()
+        if now.month != mm or now.day != dd:
+            return
+        today = date.today().isoformat()
+        if str(self.progress.get("birthday_banner_ymd") or "") == today:
+            return
+        self.progress["birthday_banner_ymd"] = today
+        save_progress(self.progress)
+        if CTkMessagebox:
+            self._msg(
+                title=f"С днём рождения! 🎂",
+                message=f"{self._pet_display_name()} и вся академия желают тебе тепла, отдыха и удачного кода в новом году 💕",
+                option_1="Мурр!",
+            )
+
+    def _show_chapter_story_modal(self, level_id: int) -> None:
+        body = CHAPTER_BEAT_STORIES.get(level_id)
+        if not body:
+            return
+        if CTkMessagebox:
+            self._msg(title=f"Сюжет · уровень {level_id}", message=body, option_1="Дальше 💕")
+        else:
+            self.status_label.configure(text=body[:200])
 
     def _msg(self, **kwargs: object):
         if not CTkMessagebox:
@@ -318,11 +485,22 @@ class MeowAcademyApp(ctk.CTk):
         )
         self.story_label.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 4))
 
+        self.micro_tip_label = ctk.CTkLabel(
+            self.quest_card,
+            text="",
+            anchor="w",
+            justify="left",
+            wraplength=700,
+            font=ctk.CTkFont(size=11),
+            text_color=("#5E35B1", "#B39DDB"),
+        )
+        self.micro_tip_label.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 6))
+
         self.wisdom_box = ctk.CTkTextbox(self.quest_card, height=76, wrap="word", font=ctk.CTkFont(size=13))
-        self.wisdom_box.grid(row=2, column=0, sticky="ew", padx=12, pady=4)
+        self.wisdom_box.grid(row=3, column=0, sticky="ew", padx=12, pady=4)
 
         self.mission_box = ctk.CTkTextbox(self.quest_card, height=72, wrap="word", font=ctk.CTkFont(size=13))
-        self.mission_box.grid(row=3, column=0, sticky="ew", padx=12, pady=(4, 4))
+        self.mission_box.grid(row=4, column=0, sticky="ew", padx=12, pady=(4, 4))
 
         self.career_label = ctk.CTkLabel(
             self.quest_card,
@@ -333,7 +511,7 @@ class MeowAcademyApp(ctk.CTk):
             font=ctk.CTkFont(size=11),
             text_color=("gray30", "gray55"),
         )
-        self.career_label.grid(row=4, column=0, sticky="ew", padx=14, pady=(2, 12))
+        self.career_label.grid(row=5, column=0, sticky="ew", padx=14, pady=(2, 12))
 
         self.editor_panel = ctk.CTkFrame(self.lesson_scroll, fg_color="transparent")
         self.editor_panel.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
@@ -441,7 +619,7 @@ class MeowAcademyApp(ctk.CTk):
         pet_mid.grid(row=0, column=1, padx=8, pady=12, sticky="ew")
         self.pet_growth_title = ctk.CTkLabel(
             pet_mid,
-            text="Тамагочи: котик растёт с твоим уровнем",
+            text="",
             font=ctk.CTkFont(size=15, weight="bold"),
             anchor="w",
         )
@@ -738,6 +916,7 @@ class MeowAcademyApp(ctk.CTk):
         self._refresh_code_highlight_theme()
         self._refresh_sidebar()
         self._refresh_meta_and_pet()
+        self._apply_cozy_visuals()
 
     def _save_current_level_draft(self) -> None:
         """Сохраняет текст редактора для текущего уровня в progress (без записи на диск)."""
@@ -768,8 +947,13 @@ class MeowAcademyApp(ctk.CTk):
         level = LEVELS[level_id - 1]
         self.level_title.configure(text=level["title"])
         beat = LEVEL_STORY_BEATS.get(level_id, "")
+        if self.progress.get("cozy_day_only"):
+            beat = "Сегодня только уют — без лишнего давления 🌸\n\n" + beat
         self.story_label.configure(text=beat)
+        tip_i = (date.today().timetuple().tm_yday + level_id * 7) % max(1, len(CS_MICRO_TIPS))
+        self.micro_tip_label.configure(text=f"💡 {CS_MICRO_TIPS[tip_i]}")
         self.career_label.configure(text=str(level.get("career_note") or "").strip())
+        self._apply_cozy_visuals()
         self._set_ro_text(self.wisdom_box, f"🐱 Лапка-подсказка\n\n{level['wisdom']}")
         self._set_ro_text(self.mission_box, f"🎯 Задание квеста\n\n{level['mission']}")
         drafts = self.progress.get("level_code_drafts") or {}
@@ -937,6 +1121,8 @@ class MeowAcademyApp(ctk.CTk):
         pts = int(self.progress.get("kitten_points", 0))
         purchased = list(self.progress.get("purchased_cosmetics", []))
         self.pet_widget.set_state(st, purchased)
+        pname = self._pet_display_name()
+        self.pet_growth_title.configure(text=f"{pname}: растёт вместе с твоим прогрессом")
         total_lv = len(LEVELS)
         self.pet_growth_detail.configure(
             text=f"Стадия роста: {st + 1} из 5  ·  пройдено уровней: {done_n} из {total_lv}"
@@ -996,6 +1182,8 @@ class MeowAcademyApp(ctk.CTk):
         else:
             msg = f"Упс! Кажется, котик запутался в ниточках. {hint}"
         self.status_label.configure(text=msg)
+        self.pet_widget.set_mood("oops")
+        self.after(2200, lambda: self.pet_widget.set_mood(None))
         if not soft:
             lives_left = lose_life(self.progress)
         else:
@@ -1059,11 +1247,16 @@ class MeowAcademyApp(ctk.CTk):
         self._refresh_progress_labels()
         level = LEVELS[self.current_level - 1]
         rules_ok = ", ".join(r["label"] for r in level["rules"])
-        self.status_label.configure(
-            text=f"Ура! Уровень пройден 💖 Оценка: {score}% · Запомни на будущее: {rules_ok}"
-        )
+        status = f"Ура! Уровень пройден 💖 Оценка: {score}% · Запомни на будущее: {rules_ok}"
+        if random.random() < 0.3:
+            status += "\n" + random.choice(MUR_STATUS_LINES)
+        self.status_label.configure(text=status)
+        self.pet_widget.set_mood("happy")
+        self.after(2600, lambda: self.pet_widget.set_mood(None))
         self._play_success_sound()
         self._show_success_modal(new_ach, was_new)
+        if was_new and self.current_level in CHAPTER_BEAT_STORIES:
+            self.after(2400, lambda lid=self.current_level: self._show_chapter_story_modal(lid))
 
     def _show_success_modal(self, new_achievements: list[str], was_new: bool) -> None:
         message = "Мяу-эффект! Ты справилась блестяще 🐾"
@@ -1311,7 +1504,7 @@ class MeowAcademyApp(ctk.CTk):
                 text_color=("#AD1457", "#F8BBD9"),
                 anchor="w",
             ).grid(row=1, column=0, sticky="ew", pady=(8, 4))
-            expl_box = ctk.CTkTextbox(scroll, wrap="word", font=ctk.CTkFont(size=13), height=220, fg_color=("#FFF8FC", "#1E1820"))
+            expl_box = ctk.CTkTextbox(scroll, wrap="word", font=ctk.CTkFont(size=13), height=280, fg_color=("#FFF8FC", "#1E1820"))
             expl_box.grid(row=2, column=0, sticky="ew", pady=(0, 10))
             expl_box.insert("1.0", expl)
             expl_box.configure(state="disabled")
@@ -1457,12 +1650,13 @@ class MeowAcademyApp(ctk.CTk):
         win = ctk.CTkToplevel(self)
         self._popup(win)
         win.title("Забота и вовлечение")
-        win.geometry("540x480")
+        win.geometry("560x560")
         tabs = ctk.CTkTabview(win)
         tabs.pack(fill="both", expand=True, padx=10, pady=10)
         t1 = tabs.add("Забота")
         t2 = tabs.add("Магазин")
         t3 = tabs.add("Джун-день")
+        t4 = tabs.add("Уют")
 
         sw_soft = ctk.CTkSwitch(t1, text="Мягкий режим (без потери жизней)", command=lambda: self._persist_soft(sw_soft))
         if self.progress.get("soft_mode_no_lives"):
@@ -1508,6 +1702,131 @@ class MeowAcademyApp(ctk.CTk):
         ctk.CTkButton(t3, text="Закрыть рабочий день джуна (+15 очков, один раз)", command=lambda: self._complete_junior_day(win)).pack(
             pady=12
         )
+
+        ctk.CTkLabel(
+            t4,
+            text="Имя питомца, день рождения (ММ-ДД), тема карточки урока и дневник — всё хранится локально.",
+            wraplength=500,
+            justify="left",
+            font=ctk.CTkFont(size=12),
+        ).pack(anchor="w", padx=10, pady=(8, 4))
+
+        name_row = ctk.CTkFrame(t4, fg_color="transparent")
+        name_row.pack(fill="x", padx=10, pady=4)
+        ctk.CTkLabel(name_row, text="Имя:").pack(side="left", padx=(0, 8))
+        ent_pet = ctk.CTkEntry(name_row, width=220)
+        ent_pet.insert(0, str(self.progress.get("pet_name", "")))
+        ent_pet.pack(side="left", padx=(0, 8))
+
+        def _save_name() -> None:
+            n = ent_pet.get().strip()
+            if not n:
+                return
+            self.progress["pet_name"] = n[:32]
+            save_progress(self.progress)
+            self._refresh_meta_and_pet()
+
+        ctk.CTkButton(name_row, text="Сохранить имя", width=120, command=_save_name).pack(side="left")
+
+        bd_row = ctk.CTkFrame(t4, fg_color="transparent")
+        bd_row.pack(fill="x", padx=10, pady=4)
+        ctk.CTkLabel(bd_row, text="День рождения (ММ-ДД):").pack(side="left", padx=(0, 8))
+        ent_bd = ctk.CTkEntry(bd_row, width=100, placeholder_text="04-10")
+        ent_bd.insert(0, str(self.progress.get("birthday_mmdd", "")))
+        ent_bd.pack(side="left", padx=(0, 8))
+
+        def _save_bd() -> None:
+            self.progress["birthday_mmdd"] = ent_bd.get().strip()[:5]
+            save_progress(self.progress)
+
+        ctk.CTkButton(bd_row, text="Ок", width=60, command=_save_bd).pack(side="left")
+
+        ctk.CTkLabel(t4, text="Тема карточки урока").pack(anchor="w", padx=10, pady=(10, 2))
+        seg_theme = ctk.CTkSegmentedButton(
+            t4,
+            values=["default", "lavender", "peach", "mint"],
+            command=lambda v: self._set_lesson_theme(v),
+        )
+        seg_theme.set(str(self.progress.get("lesson_card_theme", "default")))
+        seg_theme.pack(anchor="w", padx=10, pady=4)
+
+        ctk.CTkLabel(t4, text="Сезонная рамка").pack(anchor="w", padx=10, pady=(8, 2))
+        om_season = ctk.CTkOptionMenu(
+            t4,
+            values=["auto", "winter", "spring", "summer", "autumn"],
+            command=self._set_seasonal_accent,
+            width=200,
+        )
+        om_season.set(str(self.progress.get("seasonal_accent", "auto")))
+        om_season.pack(anchor="w", padx=10, pady=4)
+
+        sw_cozy = ctk.CTkSwitch(
+            t4,
+            text="Сегодня только уют (мягкий текст в сюжете урока)",
+            command=lambda: self._persist_cozy_day(sw_cozy),
+        )
+        if self.progress.get("cozy_day_only"):
+            sw_cozy.select()
+        sw_cozy.pack(anchor="w", padx=10, pady=8)
+
+        ctk.CTkLabel(
+            t4,
+            text="🐟 Рыбка: +2 лапки, если держать приложение открытым ~15 минут (не чаще раза в день).",
+            wraplength=500,
+            justify="left",
+            text_color=("gray35", "gray60"),
+        ).pack(anchor="w", padx=10, pady=(4, 4))
+
+        ctk.CTkLabel(t4, text="Дневник (добавь строку — сохранится в прогрессе)").pack(anchor="w", padx=10, pady=(8, 2))
+        jbox = ctk.CTkTextbox(t4, height=72, wrap="word")
+        jbox.pack(fill="x", padx=10, pady=4)
+
+        def _add_journal() -> None:
+            text = jbox.get("1.0", "end-1c").strip()
+            if not text:
+                return
+            entries = list(self.progress.get("journal_entries") or [])
+            entries.append({"date": date.today().isoformat(), "text": text[:2000]})
+            self.progress["journal_entries"] = entries
+            normalize_engagement_fields(self.progress, level_count=len(LEVELS))
+            save_progress(self.progress)
+            jbox.delete("1.0", "end")
+            _refresh_journal_list()
+
+        ctk.CTkButton(t4, text="Добавить запись", command=_add_journal, fg_color=PINK_PRIMARY, hover_color=PINK_HOVER).pack(
+            anchor="w", padx=10, pady=(0, 6)
+        )
+
+        jscroll = ctk.CTkScrollableFrame(t4, height=120)
+        jscroll.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+
+        def _refresh_journal_list() -> None:
+            for w in jscroll.winfo_children():
+                w.destroy()
+            for item in reversed((self.progress.get("journal_entries") or [])[-12:]):
+                d = item.get("date", "")
+                t = str(item.get("text", ""))[:400]
+                ctk.CTkLabel(jscroll, text=f"{d}: {t}", anchor="w", justify="left", wraplength=480).pack(
+                    fill="x", pady=3
+                )
+
+        _refresh_journal_list()
+
+    def _set_lesson_theme(self, value: str) -> None:
+        self.progress["lesson_card_theme"] = str(value)
+        save_progress(self.progress)
+        self._apply_cozy_visuals()
+        self._render_level(self.current_level)
+
+    def _set_seasonal_accent(self, value: str) -> None:
+        self.progress["seasonal_accent"] = str(value)
+        save_progress(self.progress)
+        self._apply_cozy_visuals()
+
+    def _persist_cozy_day(self, sw: ctk.CTkSwitch) -> None:
+        self.progress["cozy_day_only"] = bool(sw.get())
+        save_progress(self.progress)
+        self._render_level(self.current_level)
 
     def _persist_soft(self, sw: ctk.CTkSwitch) -> None:
         self.progress["soft_mode_no_lives"] = bool(sw.get())

@@ -45,6 +45,7 @@ class PetTamagotchi(tk.Frame):
         self._pix_h = int(height)
         self._stage = 0
         self._owned: set[str] = set()
+        self._mood: str | None = None  # happy | oops | sleepy
         self._canvas = tk.Canvas(
             self,
             width=self._pix_w,
@@ -92,6 +93,13 @@ class PetTamagotchi(tk.Frame):
     def set_state(self, stage: int, purchased_ids: Sequence[str] | None) -> None:
         self._stage = max(0, min(4, int(stage)))
         self._owned = set(purchased_ids or [])
+        self._redraw()
+
+    def set_mood(self, mood: str | None) -> None:
+        """Краткая эмоция: happy / oops / sleepy / None — обычное лицо."""
+        if mood not in (None, "happy", "oops", "sleepy"):
+            mood = None
+        self._mood = mood
         self._redraw()
 
     def _palette(self) -> tuple[str, str, str, str]:
@@ -285,11 +293,24 @@ class PetTamagotchi(tk.Frame):
         )
 
         eye_off = 16 * s
-        eye_r = 5 * s + (self._stage * 0.4)
-        c.create_oval(hx - eye_off - eye_r, hy - eye_r * 0.3, hx - eye_off + eye_r, hy + eye_r * 1.2, fill=ink, outline="")
-        c.create_oval(hx + eye_off - eye_r, hy - eye_r * 0.3, hx + eye_off + eye_r, hy + eye_r * 1.2, fill=ink, outline="")
-        c.create_oval(hx - eye_off - eye_r * 0.3, hy - eye_r * 0.5, hx - eye_off + eye_r * 0.2, hy, fill="#FFFFFF", outline="")
-        c.create_oval(hx + eye_off - eye_r * 0.3, hy - eye_r * 0.5, hx + eye_off + eye_r * 0.2, hy, fill="#FFFFFF", outline="")
+        mood = self._mood
+        base_eye = 5 * s + (self._stage * 0.4)
+        if mood == "happy":
+            eye_r = base_eye * 1.12
+        elif mood == "oops":
+            eye_r = base_eye * 0.72
+        else:
+            eye_r = base_eye
+
+        if mood == "sleepy":
+            for sign in (-1, 1):
+                ox = hx + sign * eye_off
+                c.create_line(ox - eye_r * 1.1, hy, ox + eye_r * 1.1, hy, fill=ink, width=max(2, int(2 * s)))
+        else:
+            c.create_oval(hx - eye_off - eye_r, hy - eye_r * 0.3, hx - eye_off + eye_r, hy + eye_r * 1.2, fill=ink, outline="")
+            c.create_oval(hx + eye_off - eye_r, hy - eye_r * 0.3, hx + eye_off + eye_r, hy + eye_r * 1.2, fill=ink, outline="")
+            c.create_oval(hx - eye_off - eye_r * 0.3, hy - eye_r * 0.5, hx - eye_off + eye_r * 0.2, hy, fill="#FFFFFF", outline="")
+            c.create_oval(hx + eye_off - eye_r * 0.3, hy - eye_r * 0.5, hx + eye_off + eye_r * 0.2, hy, fill="#FFFFFF", outline="")
 
         nose_y = hy + 10 * s
         c.create_polygon(hx, nose_y - 4 * s, hx - 5 * s, nose_y + 4 * s, hx + 5 * s, nose_y + 4 * s, fill="#E57373", outline=outline)
