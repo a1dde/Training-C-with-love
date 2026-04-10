@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import os
 import random
 import sys
 import threading
+from datetime import date
 from typing import Callable
 
 import customtkinter as ctk
+import tkinter as tk
 
 from achievements import achievement_catalog_rows, update_achievements
 from csharp_reference import FULL_REFERENCE_TEXT
+from engagement import LEVEL_STORY_BEATS, touch_daily_streak
 from engagement_content import (
     FIVE_MIN_QUESTS,
     JUNIOR_DAY_STEPS,
@@ -70,9 +74,12 @@ class MeowAcademyApp(ctk.CTk):
         self._apply_window_icon()
 
         self.progress = load_progress()
+        touch_daily_streak(self.progress)
+        save_progress(self.progress)
         self.attempt_count = 0
         self.current_level = int(self.progress.get("selected_level", 1))
         self.level_buttons: dict[int, ctk.CTkButton] = {}
+        self._mentor_shown_session = False
         self._burnout_nag_shown = False
         self._love_after_id: object | None = None
         self._validation_busy = False
@@ -88,9 +95,15 @@ class MeowAcademyApp(ctk.CTk):
         self._refresh_progress_labels()
         self._refresh_code_highlight_theme()
         self._schedule_love_reminder()
+        self.after(800, self._maybe_show_mentor_letter)
 
     def _on_close(self) -> None:
         self._cancel_love_reminder()
+        try:
+            self._save_current_level_draft()
+            save_progress(self.progress)
+        except Exception:
+            pass
         self.destroy()
 
     def _msg(self, **kwargs: object):
@@ -124,7 +137,7 @@ class MeowAcademyApp(ctk.CTk):
 
         top_stats = ctk.CTkFrame(self.topbar, fg_color="transparent")
         top_stats.grid(row=0, column=0, sticky="ew", padx=6, pady=(8, 4))
-        top_stats.grid_columnconfigure(4, weight=1)
+        top_stats.grid_columnconfigure(5, weight=1)
 
         self.label_progress = ctk.CTkLabel(top_stats, text="")
         self.label_progress.grid(row=0, column=0, padx=(4, 10), pady=4)
@@ -138,6 +151,14 @@ class MeowAcademyApp(ctk.CTk):
         self.label_kitten_points = ctk.CTkLabel(top_stats, text="", font=ctk.CTkFont(size=13, weight="bold"))
         self.label_kitten_points.grid(row=0, column=3, padx=(0, 10), pady=4)
 
+        self.label_streak = ctk.CTkLabel(
+            top_stats,
+            text="",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=("#C2185B", "#F8BBD9"),
+        )
+        self.label_streak.grid(row=0, column=4, padx=(0, 10), pady=4)
+
         self.theme_toggle = ctk.CTkSegmentedButton(
             top_stats,
             values=["dark", "light"],
@@ -145,7 +166,7 @@ class MeowAcademyApp(ctk.CTk):
             width=130,
         )
         self.theme_toggle.set(self.progress.get("theme", "dark"))
-        self.theme_toggle.grid(row=0, column=5, padx=(8, 4), pady=4, sticky="e")
+        self.theme_toggle.grid(row=0, column=6, padx=(8, 4), pady=4, sticky="e")
 
         top_actions = ctk.CTkFrame(self.topbar, fg_color="transparent")
         top_actions.grid(row=1, column=0, sticky="ew", padx=6, pady=(2, 8))
@@ -199,9 +220,9 @@ class MeowAcademyApp(ctk.CTk):
 
         meta_btns = ctk.CTkFrame(self.meta_bar, fg_color="transparent")
         meta_btns.grid(row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 8))
-        for c in range(5):
+        for c in range(7):
             meta_btns.grid_columnconfigure(c, weight=0)
-        meta_btns.grid_columnconfigure(5, weight=1)
+        meta_btns.grid_columnconfigure(7, weight=1)
 
         self.btn_path = ctk.CTkButton(meta_btns, text="Карта 🗺️", width=100, command=self._open_path_map)
         self.btn_path.grid(row=0, column=0, padx=3, pady=2)
@@ -211,6 +232,9 @@ class MeowAcademyApp(ctk.CTk):
         self.btn_care.grid(row=0, column=2, padx=3, pady=2)
         self.btn_digest = ctk.CTkButton(meta_btns, text="Дайджест 📰", width=102, command=self._open_weekly_digest)
         self.btn_digest.grid(row=0, column=3, padx=3, pady=2)
+
+        self.btn_five_min = ctk.CTkButton(meta_btns, text="5 мин ⚡", width=88, command=self._open_five_minute_quest)
+        self.btn_five_min.grid(row=0, column=4, padx=3, pady=2)
 
         self.sidebar = ctk.CTkFrame(self, width=252, corner_radius=14)
         self.sidebar.grid(row=2, column=0, sticky="nsw", padx=(10, 6), pady=(0, 10))
@@ -259,10 +283,14 @@ class MeowAcademyApp(ctk.CTk):
         tab_pet = self.main_tabs.add("Котик 🐾")
 
         tab_lesson.grid_columnconfigure(0, weight=1)
-        tab_lesson.grid_rowconfigure(1, weight=1, minsize=280)
+        tab_lesson.grid_rowconfigure(0, weight=1)
+
+        self.lesson_scroll = ctk.CTkScrollableFrame(tab_lesson, fg_color="transparent")
+        self.lesson_scroll.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        self.lesson_scroll.grid_columnconfigure(0, weight=1)
 
         self.quest_card = ctk.CTkFrame(
-            tab_lesson,
+            self.lesson_scroll,
             corner_radius=18,
             border_width=1,
             border_color=("#F8BBD9", "#6D3756"),
@@ -279,16 +307,40 @@ class MeowAcademyApp(ctk.CTk):
         )
         self.level_title.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
 
-        self.wisdom_box = ctk.CTkTextbox(self.quest_card, height=88, wrap="word", font=ctk.CTkFont(size=13))
-        self.wisdom_box.grid(row=1, column=0, sticky="ew", padx=12, pady=4)
+        self.story_label = ctk.CTkLabel(
+            self.quest_card,
+            text="",
+            anchor="w",
+            justify="left",
+            wraplength=700,
+            font=ctk.CTkFont(size=12),
+            text_color=("gray35", "gray60"),
+        )
+        self.story_label.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 4))
 
-        self.mission_box = ctk.CTkTextbox(self.quest_card, height=80, wrap="word", font=ctk.CTkFont(size=13))
-        self.mission_box.grid(row=2, column=0, sticky="ew", padx=12, pady=(4, 12))
+        self.wisdom_box = ctk.CTkTextbox(self.quest_card, height=76, wrap="word", font=ctk.CTkFont(size=13))
+        self.wisdom_box.grid(row=2, column=0, sticky="ew", padx=12, pady=4)
 
-        self.editor_panel = ctk.CTkFrame(tab_lesson, fg_color="transparent")
-        self.editor_panel.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 4))
+        self.mission_box = ctk.CTkTextbox(self.quest_card, height=72, wrap="word", font=ctk.CTkFont(size=13))
+        self.mission_box.grid(row=3, column=0, sticky="ew", padx=12, pady=(4, 4))
+
+        self.career_label = ctk.CTkLabel(
+            self.quest_card,
+            text="",
+            anchor="w",
+            justify="left",
+            wraplength=700,
+            font=ctk.CTkFont(size=11),
+            text_color=("gray30", "gray55"),
+        )
+        self.career_label.grid(row=4, column=0, sticky="ew", padx=14, pady=(2, 12))
+
+        self.editor_panel = ctk.CTkFrame(self.lesson_scroll, fg_color="transparent")
+        self.editor_panel.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
         self.editor_panel.grid_columnconfigure(0, weight=1)
         self.editor_panel.grid_rowconfigure(1, weight=1)
+        self.editor_panel.grid_propagate(False)
+        self.editor_panel.configure(height=400)
 
         editor_head = ctk.CTkFrame(self.editor_panel, fg_color="transparent")
         editor_head.grid(row=0, column=0, sticky="ew", pady=(0, 8))
@@ -317,8 +369,30 @@ class MeowAcademyApp(ctk.CTk):
         self.code_editor.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
         self.code_box = self.code_editor
 
-        row = ctk.CTkFrame(tab_lesson, fg_color="transparent")
-        row.grid(row=2, column=0, sticky="ew", padx=8, pady=(4, 2))
+        out_bar = ctk.CTkFrame(self.lesson_scroll, fg_color="transparent")
+        out_bar.grid(row=2, column=0, sticky="ew", padx=8, pady=(6, 2))
+        out_bar.grid_columnconfigure(0, weight=1)
+        out_head = ctk.CTkFrame(out_bar, fg_color="transparent")
+        out_head.grid(row=0, column=0, sticky="ew")
+        ctk.CTkLabel(
+            out_head,
+            text="Вывод",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color=("#AD1457", "#F8BBD9"),
+        ).pack(side="left")
+        ctk.CTkLabel(
+            out_head,
+            text="· как в IDE: сюда попадает консоль (Console.WriteLine и ошибки времени выполнения)",
+            font=ctk.CTkFont(size=11),
+            text_color=("gray40", "gray55"),
+        ).pack(side="left", padx=(10, 0))
+        self.program_output_box = ctk.CTkTextbox(out_bar, height=130, font=("Consolas", 12), wrap="char", fg_color=("#FFF8FC", "#1E1820"))
+        self.program_output_box.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        self.program_output_box.insert("1.0", "Здесь появится вывод после «Проверить 💕».")
+        self.program_output_box.configure(state="disabled")
+
+        row = ctk.CTkFrame(self.lesson_scroll, fg_color="transparent")
+        row.grid(row=3, column=0, sticky="ew", padx=8, pady=(4, 2))
         row.grid_columnconfigure(2, weight=1)
 
         self.btn_check = ctk.CTkButton(row, text="Проверить 💕", command=self._check_code, fg_color=PINK_PRIMARY, hover_color=PINK_HOVER)
@@ -337,13 +411,13 @@ class MeowAcademyApp(ctk.CTk):
         self.status_label.grid(row=0, column=2, sticky="ew")
 
         self.checklist_label = ctk.CTkLabel(
-            tab_lesson,
-            text="Нажми «Проверить 💕» — котик проверит C# быстро; кнопки на месте, ничего не уезжает.",
+            self.lesson_scroll,
+            text="Прокручивай страницу урока — карточка, редактор, вывод и кнопки в одной ленте.",
             anchor="w",
             justify="left",
             wraplength=_UI_WRAP_MAIN,
         )
-        self.checklist_label.grid(row=3, column=0, sticky="ew", padx=8, pady=(2, 10))
+        self.checklist_label.grid(row=4, column=0, sticky="ew", padx=8, pady=(2, 14))
 
         tab_pet.grid_columnconfigure(0, weight=1)
         tab_pet.grid_rowconfigure(0, weight=1)
@@ -399,7 +473,11 @@ class MeowAcademyApp(ctk.CTk):
     def _on_main_tab_changed(self) -> None:
         """Вкладка «Котик» после показа даёт корректный размер canvas (не 1×1)."""
         try:
-            if self.main_tabs.get() == "Котик 🐾":
+            tab = self.main_tabs.get()
+            if tab != "Урок 💻":
+                self._save_current_level_draft()
+                save_progress(self.progress)
+            if tab == "Котик 🐾":
                 self.after(60, self.pet_widget.refresh_geometry)
         except Exception:
             pass
@@ -661,9 +739,24 @@ class MeowAcademyApp(ctk.CTk):
         self._refresh_sidebar()
         self._refresh_meta_and_pet()
 
+    def _save_current_level_draft(self) -> None:
+        """Сохраняет текст редактора для текущего уровня в progress (без записи на диск)."""
+        try:
+            text = self.code_box.get("1.0", "end-1c")
+        except Exception:
+            return
+        drafts = self.progress.setdefault("level_code_drafts", {})
+        if not isinstance(drafts, dict):
+            self.progress["level_code_drafts"] = {}
+            drafts = self.progress["level_code_drafts"]
+        drafts[str(self.current_level)] = text[:200_000]
+
     def _select_level(self, level_id: int) -> None:
         if level_id not in self.progress.get("unlocked_levels", [1]):
             return
+        if level_id == self.current_level:
+            return
+        self._save_current_level_draft()
         self.current_level = level_id
         self.progress["selected_level"] = level_id
         save_progress(self.progress)
@@ -674,13 +767,73 @@ class MeowAcademyApp(ctk.CTk):
     def _render_level(self, level_id: int) -> None:
         level = LEVELS[level_id - 1]
         self.level_title.configure(text=level["title"])
+        beat = LEVEL_STORY_BEATS.get(level_id, "")
+        self.story_label.configure(text=beat)
+        self.career_label.configure(text=str(level.get("career_note") or "").strip())
         self._set_ro_text(self.wisdom_box, f"🐱 Лапка-подсказка\n\n{level['wisdom']}")
         self._set_ro_text(self.mission_box, f"🎯 Задание квеста\n\n{level['mission']}")
+        drafts = self.progress.get("level_code_drafts") or {}
+        key = str(level_id)
+        if key in drafts and isinstance(drafts[key], str):
+            initial_code = drafts[key]
+        else:
+            initial_code = level["starter_code"]
         self.code_box.delete("1.0", "end")
-        self.code_box.insert("1.0", level["starter_code"])
+        self.code_box.insert("1.0", initial_code)
         self._clear_highlight_tags()
         self.status_label.configure(text="Котик ждёт твоё решение 💖")
         self._update_checklist(None, level_id)
+        self._fill_program_output(None)
+
+    def _fill_program_output(self, result: dict | None) -> None:
+        """Панель вывода: консоль после dotnet run (как в IDE)."""
+        self.program_output_box.configure(state="normal")
+        self.program_output_box.delete("1.0", "end")
+        if result is None:
+            self.program_output_box.insert(
+                "1.0",
+                "Здесь появится вывод после «Проверить 💕» — всё, что программа пишет в консоль.",
+            )
+            self.program_output_box.configure(state="disabled")
+            return
+        if result.get("compiler_unavailable"):
+            self.program_output_box.insert(
+                "1.0",
+                "Запуск программы недоступен (нет подходящего .NET).\n"
+                + str(result.get("hint") or "Установи .NET 8 SDK или пересобери exe со встроенным SDK."),
+            )
+            self.program_output_box.configure(state="disabled")
+            return
+        so = str(result.get("program_stdout") or "")
+        se = str(result.get("program_stderr") or "")
+        if not so and not se and os.environ.get("MEOW_SKIP_PROGRAM_RUN") == "1":
+            self.program_output_box.insert(
+                "1.0",
+                "(в автотестах запуск программы отключён — локально после «Проверить» здесь будет консольный вывод)",
+            )
+            self.program_output_box.configure(state="disabled")
+            return
+        if not so and not se:
+            errs = result.get("compile_errors") or []
+            if not result.get("ok") and errs:
+                self.program_output_box.insert(
+                    "1.0",
+                    "Программа не запускалась — сначала исправь ошибки компиляции (см. чек-лист ниже).",
+                )
+            else:
+                self.program_output_box.insert("1.0", "(пустой вывод — в консоль ничего не попало)")
+            self.program_output_box.configure(state="disabled")
+            return
+        chunks: list[str] = []
+        if so:
+            chunks.append(so)
+        if se:
+            if chunks:
+                chunks.append("")
+            chunks.append("--- stderr ---")
+            chunks.append(se)
+        self.program_output_box.insert("1.0", "\n".join(chunks))
+        self.program_output_box.configure(state="disabled")
 
     def _set_ro_text(self, box: ctk.CTkTextbox, text: str) -> None:
         box.configure(state="normal")
@@ -763,6 +916,9 @@ class MeowAcademyApp(ctk.CTk):
         self.label_lives.configure(text=f"Жизни: {hearts}")
         kp = int(self.progress.get("kitten_points", 0))
         self.label_kitten_points.configure(text=f"🐾 {kp} очков")
+        sd = int(self.progress.get("streak_days", 0))
+        sb = int(self.progress.get("streak_best", 0))
+        self.label_streak.configure(text=f"🔥 Серия: {sd} дн. · рекорд {sb}")
         self.sidebar_points.configure(text=f"🐾\n{kp}")
         self._refresh_meta_and_pet()
 
@@ -791,12 +947,21 @@ class MeowAcademyApp(ctk.CTk):
     def _check_code(self) -> None:
         if self._validation_busy:
             return
+        self._save_current_level_draft()
+        save_progress(self.progress)
         code = self.code_box.get("1.0", "end-1c")
         self.attempt_count += 1
         self.progress["total_attempts"] = int(self.progress.get("total_attempts", 0)) + 1
         self._validation_busy = True
         self.btn_check.configure(state="disabled")
         self.status_label.configure(text="Проверяю код в фоне…")
+        try:
+            self.program_output_box.configure(state="normal")
+            self.program_output_box.delete("1.0", "end")
+            self.program_output_box.insert("1.0", "Сборка и запуск программы…")
+            self.program_output_box.configure(state="disabled")
+        except Exception:
+            pass
         self.update_idletasks()
         level_id = self.current_level
         attempt = self.attempt_count
@@ -809,12 +974,14 @@ class MeowAcademyApp(ctk.CTk):
 
     def _apply_validation_result(self, result: dict) -> None:
         self._validation_busy = False
+        self._save_current_level_draft()
         try:
             self.btn_check.configure(state="normal")
         except Exception:
             pass
         self._apply_highlights(result["good_spans"], result["bad_spans"])
         self._update_checklist(result, self.current_level)
+        self._fill_program_output(result)
 
         if result["ok"]:
             self._on_success(result["score"])
@@ -837,6 +1004,7 @@ class MeowAcademyApp(ctk.CTk):
         if not soft and lives_left == 0:
             self._show_life_reset_modal()
         self._refresh_progress_labels()
+        self._play_fail_sound()
         if self.progress["session_fail_streak"] >= 5 and not self._burnout_nag_shown:
             self._burnout_nag_shown = True
             if CTkMessagebox:
@@ -849,12 +1017,31 @@ class MeowAcademyApp(ctk.CTk):
     def _on_success(self, score: int) -> None:
         self.progress["session_fail_streak"] = 0
         self.progress["current_streak"] = int(self.progress.get("current_streak", 0)) + 1
+        attempts_here = int(self.attempt_count)
         completed = set(self.progress.get("completed_levels", []))
         was_new = self.current_level not in completed
         completed.add(self.current_level)
         self.progress["completed_levels"] = sorted(completed)
         self.progress["kitten_points"] = int(self.progress.get("kitten_points", 0)) + 10
         if was_new:
+            if not self.progress.get("campaign_started_at"):
+                self.progress["campaign_started_at"] = date.today().isoformat()
+            if attempts_here == 1:
+                ft = list(self.progress.get("levels_passed_first_try") or [])
+                if self.current_level not in ft:
+                    ft.append(self.current_level)
+                    self.progress["levels_passed_first_try"] = sorted(ft)
+            if attempts_here >= 10:
+                self.progress["won_after_many_tries"] = True
+            if self.current_level == 10:
+                csa = self.progress.get("campaign_started_at")
+                if csa and not self.progress.get("chapter_a_speedrun_done"):
+                    try:
+                        d0 = date.fromisoformat(str(csa))
+                        if (date.today() - d0).days <= 7:
+                            self.progress["chapter_a_speedrun_done"] = True
+                    except ValueError:
+                        pass
             album = list(self.progress.get("photo_album", []))
             if self.current_level not in album:
                 album.append(self.current_level)
@@ -864,6 +1051,7 @@ class MeowAcademyApp(ctk.CTk):
             unlocked.add(self.current_level + 1)
             self.progress["unlocked_levels"] = sorted(unlocked)
 
+        touch_daily_streak(self.progress)
         finalize_chapter_and_project(self.progress, total_levels=len(LEVELS))
         new_ach = update_achievements(self.progress)
         save_progress(self.progress)
@@ -874,7 +1062,7 @@ class MeowAcademyApp(ctk.CTk):
         self.status_label.configure(
             text=f"Ура! Уровень пройден 💖 Оценка: {score}% · Запомни на будущее: {rules_ok}"
         )
-        self._play_meow()
+        self._play_success_sound()
         self._show_success_modal(new_ach, was_new)
 
     def _show_success_modal(self, new_achievements: list[str], was_new: bool) -> None:
@@ -899,6 +1087,65 @@ class MeowAcademyApp(ctk.CTk):
                     self.status_label.configure(text=message)
         else:
             self.status_label.configure(text=message)
+        if was_new:
+            self.after(500, lambda: self._prompt_self_explain_if_new())
+
+    def _prompt_self_explain_if_new(self) -> None:
+        """Метапознание: отметить, что решение можно объяснить своими словами."""
+        win = ctk.CTkToplevel(self)
+        self._popup(win)
+        win.title("Понимание — суперсила 🧠")
+        win.geometry("440x220")
+        win.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            win,
+            text="Могу объяснить, что делает мой код, своими словами (пусть даже в двух фразах)?",
+            wraplength=400,
+            justify="left",
+            anchor="w",
+            font=ctk.CTkFont(size=13),
+        ).grid(row=0, column=0, padx=16, pady=(16, 8), sticky="ew")
+        var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(win, text="Да, отмечаю для себя 💕", variable=var).grid(row=1, column=0, padx=16, sticky="w")
+
+        def _ok() -> None:
+            if var.get():
+                se = list(self.progress.get("self_explain_levels") or [])
+                if self.current_level not in se:
+                    se.append(self.current_level)
+                    self.progress["self_explain_levels"] = sorted(se)
+                    save_progress(self.progress)
+            win.destroy()
+
+        ctk.CTkButton(win, text="ОК", command=_ok, fg_color=PINK_PRIMARY, hover_color=PINK_HOVER).grid(row=2, column=0, pady=16)
+
+    def _maybe_show_mentor_letter(self) -> None:
+        if self._mentor_shown_session:
+            return
+        idx = int(self.progress.get("mentor_letter_index", 0))
+        if idx >= len(MENTOR_LETTERS):
+            return
+        self._mentor_shown_session = True
+        letter = MENTOR_LETTERS[idx]
+        self.progress["mentor_letter_index"] = idx + 1
+        save_progress(self.progress)
+        if CTkMessagebox:
+            self._msg(title="Письмо от наставника 💌", message=letter, option_1="Спасибо, котик!")
+        update_achievements(self.progress)
+        save_progress(self.progress)
+
+    def _open_five_minute_quest(self) -> None:
+        q = random.choice(FIVE_MIN_QUESTS)
+        win = ctk.CTkToplevel(self)
+        self._popup(win)
+        win.title(str(q.get("title", "5 минут")))
+        win.geometry("520x320")
+        ctk.CTkLabel(win, text=str(q.get("body", "")), wraplength=480, justify="left", font=ctk.CTkFont(size=13)).pack(
+            padx=16, pady=20, anchor="w"
+        )
+        ctk.CTkButton(win, text="Вернуться к уроку 💻", command=win.destroy, fg_color=PINK_PRIMARY, hover_color=PINK_HOVER).pack(
+            pady=12
+        )
 
     def _show_life_reset_modal(self) -> None:
         text, button = random.choice(
@@ -949,7 +1196,7 @@ class MeowAcademyApp(ctk.CTk):
     def _update_checklist(self, result: dict | None, _level_id: int) -> None:
         if result is None:
             self.checklist_label.configure(
-                text="🎮 Готова сдать квест? Нажми «Проверить 💕» — котик мгновенно заглянет в код (кнопки остаются на месте)."
+                text="🎮 Готова сдать квест? Нажми «Проверить 💕» — котик проверит код и покажет вывод в панели выше."
             )
             return
         if result.get("compiler_unavailable"):
@@ -1005,21 +1252,91 @@ class MeowAcademyApp(ctk.CTk):
                 pass
         self.bell()
 
+    def _play_success_sound(self) -> None:
+        """Успех: мяу + короткий «динь» (отличается от ошибки)."""
+        self._play_meow()
+        if not self.progress.get("sound_enabled", True):
+            return
+
+        def _chime() -> None:
+            try:
+                import winsound
+
+                winsound.Beep(1040, 70)
+            except Exception:
+                pass
+
+        if sys.platform == "win32":
+            self.after(160, _chime)
+
+    def _play_fail_sound(self) -> None:
+        """Ошибка проверки: мягкий низкий сигнал, не агрессивный."""
+        if not self.progress.get("sound_enabled", True):
+            return
+        if sys.platform == "win32":
+            try:
+                import winsound
+
+                winsound.Beep(300, 100)
+                winsound.Beep(260, 120)
+            except Exception:
+                self.bell()
+        else:
+            self.bell()
+
     def _show_level_reference(self) -> None:
         level = LEVELS[self.current_level - 1]
         win = ctk.CTkToplevel(self)
         self._popup(win)
         win.title("Эталон — только подглядывай, если совсем застряла")
-        win.geometry("720x520")
+        win.geometry("800x680")
+        win.grid_columnconfigure(0, weight=1)
+        win.grid_rowconfigure(0, weight=1)
+        scroll = ctk.CTkScrollableFrame(win, fg_color="transparent")
+        scroll.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        scroll.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            win,
+            scroll,
             text="Это один из рабочих вариантов. Лучше сначала попробуй сама — эталон не исчезнет.",
             anchor="w",
-        ).pack(anchor="w", padx=10, pady=8)
+            justify="left",
+            wraplength=760,
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        expl = str(level.get("reference_explanation") or "").strip()
+        if expl:
+            ctk.CTkLabel(
+                scroll,
+                text="Почему так (разбор эталона)",
+                font=ctk.CTkFont(size=15, weight="bold"),
+                text_color=("#AD1457", "#F8BBD9"),
+                anchor="w",
+            ).grid(row=1, column=0, sticky="ew", pady=(8, 4))
+            expl_box = ctk.CTkTextbox(scroll, wrap="word", font=ctk.CTkFont(size=13), height=220, fg_color=("#FFF8FC", "#1E1820"))
+            expl_box.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+            expl_box.insert("1.0", expl)
+            expl_box.configure(state="disabled")
+            editor_row = 3
+        else:
+            editor_row = 1
+        ctk.CTkLabel(
+            scroll,
+            text="Код эталона",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color=("#AD1457", "#F8BBD9"),
+            anchor="w",
+        ).grid(row=editor_row, column=0, sticky="ew", pady=(4, 4))
         ref = str(level.get("reference_code") or "").strip()
         if not ref:
             ref = "// Эталон для этого уровня ещё не добавлен.\n"
-        self._pack_modal_code_editor(win, ref, read_only=True)
+        ed_wrap = ctk.CTkFrame(scroll, fg_color="transparent")
+        ed_wrap.grid(row=editor_row + 1, column=0, sticky="ew", pady=(0, 8))
+        ed_wrap.grid_rowconfigure(0, weight=1)
+        ed_wrap.grid_columnconfigure(0, weight=1)
+        ed_wrap.configure(height=340)
+        ed_wrap.grid_propagate(False)
+        editor = self._embed_ide_editor(ed_wrap)
+        editor.insert("1.0", ref)
+        editor.set_read_only(True)
 
     def _open_path_map(self) -> None:
         win = ctk.CTkToplevel(self)
@@ -1038,10 +1355,31 @@ class MeowAcademyApp(ctk.CTk):
             ("E — Исключения", "try/catch — скоро", False),
             ("F — LINQ / файлы", "опционально — скоро", False),
         ]
+        pulse_lbl: ctk.CTkLabel | None = None
         for title, sub, ok in chapters:
             mark = "✅" if ok else "⏳"
-            ctk.CTkLabel(win, text=f"{mark} {title}\n   {sub}", anchor="w", justify="left").pack(anchor="w", padx=16, pady=4)
+            lbl = ctk.CTkLabel(win, text=f"{mark} {title}\n   {sub}", anchor="w", justify="left")
+            lbl.pack(anchor="w", padx=16, pady=4)
+            if pulse_lbl is None and not ok:
+                pulse_lbl = lbl
         ctk.CTkButton(win, text="Roadmap Junior Security Cat", command=self._open_roadmap).pack(pady=12)
+        if pulse_lbl is not None:
+            self._pulse_map_label(pulse_lbl, 0)
+
+    def _pulse_map_label(self, widget: ctk.CTkLabel, step: int) -> None:
+        if step >= 8:
+            try:
+                widget.configure(text_color=("gray20", "gray85"))
+            except Exception:
+                pass
+            return
+        hi = ("#AD1457", "#F8BBD9")
+        lo = ("gray25", "gray70")
+        try:
+            widget.configure(text_color=hi if step % 2 == 0 else lo)
+        except Exception:
+            pass
+        self.after(180, lambda: self._pulse_map_label(widget, step + 1))
 
     def _open_roadmap(self) -> None:
         win = ctk.CTkToplevel(self)

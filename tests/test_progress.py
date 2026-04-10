@@ -32,6 +32,19 @@ class ProgressTests(unittest.TestCase):
         normalize_progress_state(p, level_count=10)
         self.assertEqual(p["selected_level"], 1)
 
+    def test_normalize_prunes_invalid_level_drafts(self):
+        p = dict(DEFAULT_PROGRESS)
+        p["level_code_drafts"] = {
+            "1": "ok",
+            "99": "junk",
+            "x": "bad",
+            "2": "level2",
+        }
+        normalize_progress_state(p, level_count=10)
+        self.assertEqual(p["level_code_drafts"].get("1"), "ok")
+        self.assertEqual(p["level_code_drafts"].get("2"), "level2")
+        self.assertNotIn("99", p["level_code_drafts"])
+
 
 if __name__ == "__main__":
     unittest.main()

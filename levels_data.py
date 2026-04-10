@@ -25,6 +25,8 @@ class Level(TypedDict):
     mission: str
     starter_code: str
     reference_code: str
+    reference_explanation: str
+    career_note: str
     rules: list[Rule]
     hints: dict[str, list[str]]
 
@@ -49,6 +51,13 @@ LEVELS: list[Level] = [
         "mission": "Напиши строку, которая выводит приветствие в консоль.",
         "starter_code": "// Уровень 1 · выведи приветствие в консоль\n// Подсказка смотри в задании выше — без готового кода здесь 💕\n\n",
         "reference_code": 'Console.WriteLine("Привет, C#!");\n',
+        "reference_explanation": (
+            "• `Console.WriteLine` — метод класса `Console` из пространства имён `System` (в учебном шаблоне подключены неявные using’и). "
+            "Он отправляет текст в стандартный вывод — то, что ты видишь в панели «Вывод» после запуска.\n"
+            "• Строка в кавычках `\"...\"` — литерал типа `string`.\n"
+            "• `;` завершает оператор: без него компилятор ждёт продолжения и выдаёт ошибку."
+        ),
+        "career_note": "В реальных сервисах в консоль и лог пишут то же самое: статус, ошибки, время — с `Console` начинается привычка к «прозрачному» коду.",
         "rules": [
             {"id": "console_write", "kind": "contains", "value": "Console.WriteLine", "label": "Есть Console.WriteLine"},
             {"id": "semicolon", "kind": "contains", "value": ";", "label": "Есть ;"},
@@ -75,6 +84,12 @@ LEVELS: list[Level] = [
         "mission": "Создай переменную string и выведи её через Console.WriteLine.",
         "starter_code": "// Уровень 2 · переменная string и вывод\n\n",
         "reference_code": 'string catName = "Мурка";\nConsole.WriteLine(catName);\n',
+        "reference_explanation": (
+            "• `string catName = \"Мурка\"` — объявление переменной типа `string` и присвоение строкового литерала.\n"
+            "• Имя `catName` — ссылка на строку в памяти; тип явно указан (`string`).\n"
+            "• `Console.WriteLine(catName)` выводит значение переменной, а не текст в кавычках — в консоли будет «Мурка»."
+        ),
+        "career_note": "Имена переменных — как договорённость в команде: читаемый `userName` лучше, чем `x`, когда код будут смотреть другие.",
         "rules": [
             {"id": "string_kw", "kind": "contains", "value": "string", "label": "Есть string"},
             {"id": "write", "kind": "contains", "value": "Console.WriteLine", "label": "Есть вывод"},
@@ -102,6 +117,12 @@ LEVELS: list[Level] = [
         "mission": "Создай int-переменную и выведи число в консоль.",
         "starter_code": "// Уровень 3 · int и вывод числа\n\n",
         "reference_code": "int treats = 5;\nConsole.WriteLine(treats);\n",
+        "reference_explanation": (
+            "• `int` — целочисленный тип (32-бит со знаком); подходит для счётчиков и «количества вкусняшек».\n"
+            "• `Console.WriteLine(treats)` перегружен: для `int` выводится десятичное представление числа без кавычек.\n"
+            "• Сначала объявляем данные, потом выводим — так проще читать и отлаживать."
+        ),
+        "career_note": "Счётчики и размеры в API и логах почти всегда целые — привыкай к `int` как к «рабочей лошадке».",
         "rules": [
             {"id": "int_kw", "kind": "contains", "value": "int", "label": "Есть int"},
             {"id": "write", "kind": "contains", "value": "Console.WriteLine", "label": "Есть вывод"},
@@ -129,6 +150,12 @@ LEVELS: list[Level] = [
         "mission": "Создай bool-переменную и выведи её значение.",
         "starter_code": "// Уровень 4 · bool и вывод\n\n",
         "reference_code": "bool isHungry = true;\nConsole.WriteLine(isHungry);\n",
+        "reference_explanation": (
+            "• `bool` хранит только `true` или `false` — удобно для флагов и условий.\n"
+            "• `Console.WriteLine` для `bool` печатает текст `True` или `False` в зависимости от языка/формата вывода (в .NET обычно с заглавной).\n"
+            "• Дальше такие переменные пойдут в `if` без лишних сравнений с «да/нет»."
+        ),
+        "career_note": "Флаги `bool` — основа feature-toggle и проверок прав: «можно ли пользователю это действие».",
         "rules": [
             {"id": "bool_kw", "kind": "contains", "value": "bool", "label": "Есть bool"},
             {"id": "truth", "kind": "contains", "value": "true", "label": "Есть true/false"},
@@ -155,6 +182,12 @@ LEVELS: list[Level] = [
         "mission": "Напиши код с if и else.",
         "starter_code": "// Уровень 5 · ветвление if / else\n\n",
         "reference_code": "bool isHungry = true;\nif (isHungry)\n{\n    Console.WriteLine(\"Кушаем\");\n}\nelse\n{\n    Console.WriteLine(\"Спим\");\n}\n",
+        "reference_explanation": (
+            "• `if (условие)` выполняет блок, только если условие истинно; `else` — запасной путь.\n"
+            "• Фигурные скобки `{ }` группируют несколько операторов в один блок (стиль Allman — скобки на новых строках — читается как в учебниках).\n"
+            "• В каждой ветке есть `WriteLine`, чтобы в «Выводе» было видно, какую ветку выбрала программа."
+        ),
+        "career_note": "В бэкенде и ИБ каждая ветка `if` — это часто отдельный сценарий: доступ разрешён / запрещён / нужна проверка.",
         "rules": [
             {"id": "if_kw", "kind": "contains", "value": "if", "label": "Есть if"},
             {"id": "else_kw", "kind": "contains", "value": "else", "label": "Есть else"},
@@ -181,6 +214,12 @@ LEVELS: list[Level] = [
         "mission": "Используй for и выведи значения счётчика.",
         "starter_code": "// Уровень 6 · цикл for\n\n",
         "reference_code": "for (int i = 0; i < 3; i++)\n{\n    Console.WriteLine(i);\n}\n",
+        "reference_explanation": (
+            "• Классический `for`: инициализация `i = 0`, условие продолжения `i < 3`, шаг `i++` после каждой итерации.\n"
+            "• Итерации: i = 0, 1, 2 — три раза выводим счётчик.\n"
+            "• `i++` — то же, что `i = i + 1`; удобно для «кругов охоты» по индексам."
+        ),
+        "career_note": "Циклы обходят коллекции, символы, пакеты — без `for`/`foreach` в промышленном коде почти никуда.",
         "rules": [
             {"id": "for_kw", "kind": "contains", "value": "for", "label": "Есть for"},
             {"id": "int_kw", "kind": "contains", "value": "int", "label": "Есть int"},
@@ -208,6 +247,12 @@ LEVELS: list[Level] = [
         "mission": "Создай массив и выведи один элемент.",
         "starter_code": "// Уровень 7 · массив и индекс\n\n",
         "reference_code": 'string[] cats = {"Мурка", "Барсик"};\nConsole.WriteLine(cats[0]);\n',
+        "reference_explanation": (
+            "• `string[]` — массив строк; инициализация `{ \"Мурка\", \"Барсик\" }` задаёт элементы по порядку.\n"
+            "• Индексация с нуля: `cats[0]` — первый элемент, `cats[1]` — второй.\n"
+            "• Обращение по индексу быстрее всего показывает, что массив — это непрерывная «полка» однотипных значений."
+        ),
+        "career_note": "Массивы и буферы встречаются в сетевых пакетах и крипто — индекс и длина всегда на виду.",
         "rules": [
             {"id": "array", "kind": "contains", "value": "[]", "label": "Есть массив []"},
             {"id": "write", "kind": "contains", "value": "Console.WriteLine", "label": "Есть вывод"},
@@ -234,6 +279,12 @@ LEVELS: list[Level] = [
         "mission": "Используй интерполяцию строки с переменной.",
         "starter_code": "// Уровень 8 · интерполяция $\"...\"\n\n",
         "reference_code": 'string name = "Луна";\nConsole.WriteLine($"Привет, {name}!");\n',
+        "reference_explanation": (
+            "• Интерполяция: строка с префиксом `$` и выражениями в `{ }` внутри — компилятор собирает итоговую строку.\n"
+            "• `{name}` подставляет значение переменной без ручного `+` и без `string.Format`.\n"
+            "• Удобно для коротких сообщений пользователю; экранирование кавычек внутри — по правилам обычных строк."
+        ),
+        "career_note": "Интерполяция — стандарт для UI и логов: аккуратно собирать текст без «склеек» и ошибок в `+`.",
         "rules": [
             {"id": "dollar_quote", "kind": "contains", "value": '$"', "label": 'Есть $"'},
             {"id": "brace_open", "kind": "contains", "value": "{", "label": "Есть {"},
@@ -260,6 +311,12 @@ LEVELS: list[Level] = [
         "mission": "Создай метод и вызови его.",
         "starter_code": "// Уровень 9 · метод void и вызов\n\n",
         "reference_code": "void Purr()\n{\n    Console.WriteLine(\"Мур\");\n}\n\nPurr();\n",
+        "reference_explanation": (
+            "• `void Purr()` — метод без возвращаемого значения; тело в `{ }`.\n"
+            "• Вызов `Purr();` — выполняет блок метода; без скобок имя не вызовется как метод.\n"
+            "• Разделение на методы убирает дублирование и делает `Main` (у нас — верхний уровень файла) короче."
+        ),
+        "career_note": "Методы — единица рефакторинга в команде: маленькие функции проще тестировать и ревьюить.",
         "rules": [
             {"id": "method_decl", "kind": "contains", "value": "void", "label": "Есть объявление метода"},
             {"id": "paren", "kind": "contains", "value": "()", "label": "Есть ()"},
@@ -286,6 +343,12 @@ LEVELS: list[Level] = [
         "mission": "Напиши мини-программу с методом, for и if/else, выводом в консоль.",
         "starter_code": "// Уровень 10 · метод, for, if/else — всё вместе\n\n",
         "reference_code": "void Check(int i)\n{\n    if (i % 2 == 0)\n    {\n        Console.WriteLine(\"Чёт\");\n    }\n    else\n    {\n        Console.WriteLine(\"Нечёт\");\n    }\n}\n\nfor (int i = 0; i < 3; i++)\n{\n    Check(i);\n}\n",
+        "reference_explanation": (
+            "• `Check(int i)` — метод с параметром; `i % 2 == 0` проверяет чётность (остаток от деления на 2).\n"
+            "• Цикл `for` вызывает `Check` для 0, 1, 2 — три строки в выводе: «Чёт», «Нечёт», «Чёт».\n"
+            "• Так соединяют переиспользуемую логику (метод) и повторение (цикл) — базовый навык структурирования кода."
+        ),
+        "career_note": "Так выглядит кусок реальной задачи: цикл + ветвления — в парсерах, отчётах и проверках данных. Дальше — коллекции и ООП.",
         "rules": [
             {"id": "method", "kind": "contains", "value": "void", "label": "Есть метод"},
             {"id": "if", "kind": "contains", "value": "if", "label": "Есть if"},

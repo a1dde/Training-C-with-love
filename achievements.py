@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, TypedDict
 
+from engagement_content import MENTOR_LETTERS
+
 
 class AchievementMeta(TypedDict):
     title: str
@@ -20,6 +22,18 @@ def _bosses(progress: dict[str, Any]) -> int:
 
 def _dailies(progress: dict[str, Any]) -> int:
     return int(progress.get("daily_events_done", 0))
+
+
+def _first_try_levels(progress: dict[str, Any]) -> int:
+    return len(progress.get("levels_passed_first_try") or [])
+
+
+def _streak_days(progress: dict[str, Any]) -> int:
+    return int(progress.get("streak_days", 0))
+
+
+def _mentor_read_all(progress: dict[str, Any]) -> bool:
+    return int(progress.get("mentor_letter_index", 0)) >= len(MENTOR_LETTERS)
 
 
 ACHIEVEMENTS: dict[str, AchievementMeta] = {
@@ -57,6 +71,36 @@ ACHIEVEMENTS: dict[str, AchievementMeta] = {
         "category": "capstone",
         "rarity": "легендарное",
         "check": lambda p: bool(p.get("final_project_done")) and _bosses(p) >= 3,
+    },
+    "ach_031": {
+        "title": "С первого «Проверить»",
+        "category": "skill",
+        "rarity": "редкое",
+        "check": lambda p: _first_try_levels(p) >= 3,
+    },
+    "ach_032": {
+        "title": "Десять раз — и победа",
+        "category": "quality",
+        "rarity": "редкое",
+        "check": lambda p: bool(p.get("won_after_many_tries")),
+    },
+    "ach_033": {
+        "title": "Неделя в Логове",
+        "category": "story",
+        "rarity": "эпическое",
+        "check": lambda p: bool(p.get("chapter_a_speedrun_done")),
+    },
+    "ach_034": {
+        "title": "Серия как привычка",
+        "category": "events",
+        "rarity": "редкое",
+        "check": lambda p: _streak_days(p) >= 7,
+    },
+    "ach_035": {
+        "title": "Все письма наставника",
+        "category": "story",
+        "rarity": "эпическое",
+        "check": lambda p: _mentor_read_all(p),
     },
 }
 

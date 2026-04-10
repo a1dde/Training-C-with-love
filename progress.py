@@ -41,6 +41,24 @@ DEFAULT_PROGRESS: dict[str, Any] = {
     "theme": "dark",
     "sound_enabled": True,
     "love_reminder_enabled": True,
+    # Черновики кода по уровням: ключи "1".."N" (строки для JSON), значение — текст редактора
+    "level_code_drafts": {},
+    # Серия дней подряд (открыла приложение или прошла уровень)
+    "streak_last_date": None,
+    "streak_days": 0,
+    "streak_best": 0,
+    # Письма наставника: индекс следующего непрочитанного (0 = первое письмо)
+    "mentor_letter_index": 0,
+    # Уровни, сданные с первой попытки (после «Проверить»)
+    "levels_passed_first_try": [],
+    # Хоть раз прошла уровень с 10+ попыток на этот уровень
+    "won_after_many_tries": False,
+    # Дата первого пройденного уровня кампании (ISO) — для «глава за неделю»
+    "campaign_started_at": None,
+    # Глава A закрыта за ≤7 дней от первого уровня
+    "chapter_a_speedrun_done": False,
+    # Уровни, где отмечено «могу объяснить своими словами»
+    "self_explain_levels": [],
 }
 
 
@@ -80,6 +98,27 @@ def normalize_progress_state(progress: dict[str, Any], level_count: int) -> None
         sel = max(leq) if leq else min(unlocked)
     progress["unlocked_levels"] = unlocked
     progress["selected_level"] = sel
+
+    raw_drafts = progress.get("level_code_drafts")
+    if not isinstance(raw_drafts, dict):
+        raw_drafts = {}
+    clean_drafts: dict[str, str] = {}
+    for k, v in raw_drafts.items():
+        try:
+            lid = int(k)
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= lid <= max_id):
+            continue
+        if not isinstance(v, str):
+            continue
+        # защита от раздувания progress.json
+        clean_drafts[str(lid)] = v[:200_000]
+    progress["level_code_drafts"] = clean_drafts
+
+    from engagement import normalize_engagement_fields
+
+    normalize_engagement_fields(progress, level_count=max_id)
 
 
 def save_progress(progress: dict[str, Any]) -> None:

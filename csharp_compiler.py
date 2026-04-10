@@ -396,6 +396,197 @@ def compile_csharp_source(source: str, timeout: float = 45.0) -> dict[str, Any]:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def build_and_run_csharp_source(source: str, build_timeout: float = 45.0, run_timeout: float = 12.0) -> dict[str, Any]:
+    """
+    Полная сборка учебного проекта и запуск (как «Вывод» в IDE): stdout/stderr консоли.
+    Вызывать, когда быстрый анализатор уже подтвердил код; иначе дублирует работу зря.
+    """
+    dotnet = dotnet_path()
+    if not dotnet:
+        return {
+            "compile_ok": False,
+            "errors": [],
+            "raw_output": "",
+            "hint": "Нет dotnet для запуска.",
+            "stdout": "",
+            "stderr": "",
+            "exit_code": None,
+            "compiler_unavailable": True,
+        }
+
+    proj_src = template_project_dir() / "MeowValidator.csproj"
+    if not proj_src.is_file():
+        return {
+            "compile_ok": False,
+            "errors": [],
+            "raw_output": "",
+            "hint": "Нет шаблона MeowValidator.csproj.",
+            "stdout": "",
+            "stderr": "",
+            "exit_code": None,
+            "compiler_unavailable": True,
+        }
+
+    source = source.replace("\r\n", "\n").strip()
+    if not source:
+        return {
+            "compile_ok": False,
+            "errors": [],
+            "raw_output": "",
+            "hint": "Пустой код.",
+            "stdout": "",
+            "stderr": "",
+            "exit_code": None,
+            "compiler_unavailable": False,
+        }
+
+    if not dotnet_sdk_available():
+        return {
+            "compile_ok": False,
+            "errors": [],
+            "raw_output": "",
+            "hint": "Нет .NET SDK для сборки и запуска.",
+            "stdout": "",
+            "stderr": "",
+            "exit_code": None,
+            "compiler_unavailable": True,
+        }
+
+    tmp = Path(tempfile.mkdtemp(prefix="meowrun_"))
+    try:
+        shutil.copy2(proj_src, tmp / "MeowValidator.csproj")
+        (tmp / "Program.cs").write_text(source + ("\n" if not source.endswith("\n") else ""), encoding="utf-8")
+
+        try:
+            proc_b = subprocess.run(
+                [
+                    dotnet,
+                    "build",
+                    str(tmp / "MeowValidator.csproj"),
+                    "-c",
+                    "Release",
+                    "-v",
+                    "q",
+                    "--nologo",
+                    "/p:RunAnalyzers=false",
+                    "/p:BuildInParallel=true",
+                ],
+                cwd=str(tmp),
+                env=dotnet_runtime_env(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=build_timeout,
+                **_subprocess_no_console(),
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "compile_ok": False,
+                "errors": [
+                    {
+                        "line": 1,
+                        "column": 1,
+                        "code": "MEOW_TIMEOUT",
+                        "message": "MEOW_TIMEOUT: сборка заняла слишком много времени.",
+                        "severity": "error",
+                    }
+                ],
+                "raw_output": "",
+                "hint": "Таймаут сборки.",
+                "stdout": "",
+                "stderr": "",
+                "exit_code": None,
+                "compiler_unavailable": False,
+            }
+        raw_b = (proc_b.stdout or "") + "\n" + (proc_b.stderr or "")
+        if proc_b.returncode != 0:
+            errors = normalize_compile_errors(_parse_errors(raw_b), source)
+            hint = ""
+            if errors:
+                hint = str(errors[0].get("message", ""))
+            elif raw_b.strip():
+                hint = raw_b.strip()[-2000:]
+            else:
+                hint = "Сборка не удалась."
+            return {
+                "compile_ok": False,
+                "errors": errors,
+                "raw_output": raw_b,
+                "hint": hint,
+                "stdout": "",
+                "stderr": "",
+                "exit_code": None,
+                "compiler_unavailable": False,
+            }
+
+        try:
+            proc_r = subprocess.run(
+                [
+                    dotnet,
+                    "run",
+                    "--project",
+                    str(tmp / "MeowValidator.csproj"),
+                    "-c",
+                    "Release",
+                    "--no-build",
+                    "--no-launch-profile",
+                ],
+                cwd=str(tmp),
+                env=dotnet_runtime_env(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=run_timeout,
+                **_subprocess_no_console(),
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "compile_ok": False,
+                "errors": [
+                    {
+                        "line": 1,
+                        "column": 1,
+                        "code": "MEOW_TIMEOUT",
+                        "message": "MEOW_TIMEOUT: программа слишком долго работала (возможен бесконечный цикл).",
+                        "severity": "error",
+                    }
+                ],
+                "raw_output": raw_b,
+                "hint": "Таймаут запуска программы.",
+                "stdout": "",
+                "stderr": "",
+                "exit_code": None,
+                "compiler_unavailable": False,
+            }
+        out = (proc_r.stdout or "").replace("\r\n", "\n")
+        err = (proc_r.stderr or "").replace("\r\n", "\n")
+        return {
+            "compile_ok": True,
+            "errors": [],
+            "raw_output": raw_b,
+            "hint": "",
+            "stdout": out.rstrip("\n"),
+            "stderr": err.rstrip("\n"),
+            "exit_code": int(proc_r.returncode),
+            "compiler_unavailable": False,
+        }
+    except OSError as e:
+        return {
+            "compile_ok": False,
+            "errors": [],
+            "raw_output": str(e),
+            "hint": str(e),
+            "stdout": "",
+            "stderr": "",
+            "exit_code": None,
+            "compiler_unavailable": True,
+        }
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def compile_result_to_validation(
     cr: dict[str, Any],
     attempt_count: int = 1,

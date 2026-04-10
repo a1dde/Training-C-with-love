@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
-from csharp_compiler import analyze_csharp_source, compile_csharp_source, compile_result_to_validation
+from csharp_compiler import analyze_csharp_source, build_and_run_csharp_source, compile_csharp_source, compile_result_to_validation
 from levels_data import LEVELS, Level
 from ui_helpers import kitten_tail_for_compiler_message
 
@@ -41,6 +42,12 @@ def _hint_for_rule_map(hints_map: dict[str, list[str]] | None, rule_id: str, att
         return None
     idx = min(max(attempt - 1, 0), len(arr) - 1)
     return arr[idx]
+
+
+def _attach_program_output(result: dict[str, Any], stdout: str, stderr: str) -> dict[str, Any]:
+    result["program_stdout"] = stdout
+    result["program_stderr"] = stderr
+    return result
 
 
 def _rule_validation_fail(
@@ -86,13 +93,33 @@ def validate_level(level_id: int, code: str, attempt_count: int = 1) -> dict[str
     if cr.get("compiler_unavailable"):
         cr = compile_csharp_source(code)
     if not cr.get("ok"):
-        return compile_result_to_validation(cr, attempt_count, code)
+        out = compile_result_to_validation(cr, attempt_count, code)
+        return _attach_program_output(out, "", "")
+
+    br_stdout, br_stderr = "", ""
+    skip_run = os.environ.get("MEOW_SKIP_PROGRAM_RUN") == "1"
+    if not skip_run:
+        br = build_and_run_csharp_source(code)
+        if not br.get("compile_ok"):
+            fake_cr: dict[str, Any] = {
+                "ok": False,
+                "errors": list(br.get("errors") or []),
+                "raw_output": str(br.get("raw_output") or ""),
+                "hint": str(br.get("hint") or ""),
+                "compiler_unavailable": bool(br.get("compiler_unavailable")),
+            }
+            out = compile_result_to_validation(fake_cr, attempt_count, code)
+            return _attach_program_output(out, str(br.get("stdout") or ""), str(br.get("stderr") or ""))
+        br_stdout = str(br.get("stdout") or "")
+        br_stderr = str(br.get("stderr") or "")
 
     missing = [r for r in level["rules"] if not _rule_satisfied(r, code)]
     if missing:
-        return _rule_validation_fail(missing, code, attempt_count, level.get("hints"))
+        out = _rule_validation_fail(missing, code, attempt_count, level.get("hints"))
+        return _attach_program_output(out, br_stdout, br_stderr)
 
-    return compile_result_to_validation(cr, attempt_count, code)
+    out = compile_result_to_validation(cr, attempt_count, code)
+    return _attach_program_output(out, br_stdout, br_stderr)
 
 
 def validate_rules(
@@ -106,13 +133,33 @@ def validate_rules(
     if cr.get("compiler_unavailable"):
         cr = compile_csharp_source(code)
     if not cr.get("ok"):
-        return compile_result_to_validation(cr, attempt_count, code)
+        out = compile_result_to_validation(cr, attempt_count, code)
+        return _attach_program_output(out, "", "")
+
+    br_stdout, br_stderr = "", ""
+    skip_run = os.environ.get("MEOW_SKIP_PROGRAM_RUN") == "1"
+    if not skip_run:
+        br = build_and_run_csharp_source(code)
+        if not br.get("compile_ok"):
+            fake_cr: dict[str, Any] = {
+                "ok": False,
+                "errors": list(br.get("errors") or []),
+                "raw_output": str(br.get("raw_output") or ""),
+                "hint": str(br.get("hint") or ""),
+                "compiler_unavailable": bool(br.get("compiler_unavailable")),
+            }
+            out = compile_result_to_validation(fake_cr, attempt_count, code)
+            return _attach_program_output(out, str(br.get("stdout") or ""), str(br.get("stderr") or ""))
+        br_stdout = str(br.get("stdout") or "")
+        br_stderr = str(br.get("stderr") or "")
 
     missing = [r for r in rules if not _rule_satisfied(r, code)]
     if missing:
-        return _rule_validation_fail(missing, code, attempt_count, hints_map)
+        out = _rule_validation_fail(missing, code, attempt_count, hints_map)
+        return _attach_program_output(out, br_stdout, br_stderr)
 
-    return compile_result_to_validation(cr, attempt_count, code)
+    out = compile_result_to_validation(cr, attempt_count, code)
+    return _attach_program_output(out, br_stdout, br_stderr)
 
 
 def validation_status_message(result: dict[str, Any]) -> str:
