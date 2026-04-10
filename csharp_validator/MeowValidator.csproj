@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>12</LangVersion>
+    <RootNamespace>MeowValidator</RootNamespace>
+    <AssemblyName>MeowValidator</AssemblyName>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- Учебный код: не валим сборку из‑за стиля -->
+    <WarningLevel>3</WarningLevel>
+    <NoWarn>$(NoWarn);CS8321</NoWarn>
+  </PropertyGroup>
+</Project>

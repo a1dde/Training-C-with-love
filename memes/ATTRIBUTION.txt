@@ -1,0 +1,8 @@
+Источники изображений котиков (учебное использование):
+
+cat1.jpg - https://upload.wikimedia.org/wikipedia/commons/3/3a/Cat03.jpg (Wikimedia Commons)
+cat2.jpg - https://upload.wikimedia.org/wikipedia/commons/0/0b/Cat_poster_1.jpg (Wikimedia Commons)
+cat3.jpg - https://upload.wikimedia.org/wikipedia/commons/2/25/Siam_lilacpoint.jpg (Wikimedia Commons)
+cat4.jpg - https://upload.wikimedia.org/wikipedia/commons/b/b6/Felis_catus-cat_on_snow.jpg (Wikimedia Commons)
+cat5.jpg - копия cat1.jpg (fallback slot)
+cat6.jpg - копия cat3.jpg (fallback slot)

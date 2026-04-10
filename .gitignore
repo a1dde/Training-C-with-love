@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+
+# PyInstaller (артефакты сборки; spec можно держать — не игнорируем *.spec)
+build/
+
+# Готовый exe и локальный прогресс рядом с exe — не в git
+dist/
+
+# Portable .NET в комплекте (качается build_exe.ps1)
+bundled_dotnet/
+
+# C# build output (исходники .csproj / .cs — в репозитории)
+csharp_syntax_check/bin/
+csharp_syntax_check/obj/
+csharp_validator/bin/
+csharp_validator/obj/
+
+# IDE / OS
+.idea/
+.vscode/
+*.user
+Thumbs.db
+Desktop.ini
+
+# Локальные копии прогресса при тестах
+progress.json
